@@ -20,6 +20,7 @@ venv/
 backend/data/processed/*.pkl
 backend/data/processed/chroma_collection.txt
 backend/chroma_db/
+backend/chroma_db_backup_*/
 backend/model_cache/
 backend/postgres_data/
 
