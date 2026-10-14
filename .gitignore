@@ -1,0 +1,38 @@
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated model and persistent local data
+backend/data/processed/*.pkl
+backend/data/processed/chroma_collection.txt
+backend/chroma_db/
+backend/model_cache/
+backend/postgres_data/
+
+# JavaScript
+node_modules/
+frontend/dist/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Local tooling and operating-system files
+.vscode/*
+!.vscode/launch.json
+.idea/
+.DS_Store
+Thumbs.db
