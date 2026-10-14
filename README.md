@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Intelligent Customer Churn Prediction & RAG Analysis System
 
 A full-stack research prototype that predicts churn risk from the Telco
@@ -584,3 +585,6 @@ the configured LLM to help answer questions. Embeddings and, by default,
 chat generation run locally through Ollama. PostgreSQL keeps a known churn
 outcome separate from a model prediction, and updating a customer never
 silently changes or retrains the fitted model.
+=======
+# Churn-RAG-Project
+>>>>>>> 173297fb0aaa7764e1113699a356d8b1681edb25
