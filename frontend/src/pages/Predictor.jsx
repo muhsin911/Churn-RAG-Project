@@ -3,13 +3,31 @@ import { Activity, ArrowRight, CheckCircle2, RotateCcw, Search } from "lucide-re
 import LoadingSpinner from "../components/LoadingSpinner.jsx";
 import { getCustomer, predictChurn, predictStoredCustomer } from "../services/api.js";
 
-const initialValues = {
-  tenure: "12",
-  monthly_charges: "70",
-  total_charges: "",
-  contract_type: "Month-to-month",
-  payment_method: "Electronic check",
-};
+const featureFields = [
+  { name: "tenure", label: "Customer tenure", kind: "number", initialValue: "12", min: 0, max: 120, step: 1, suffix: "months" },
+  { name: "monthly_charges", label: "Monthly charges", kind: "number", initialValue: "70", min: 0.01, step: 0.01, prefix: "$", suffix: "/ mo" },
+  { name: "total_charges", label: "Total charges to date", kind: "number", initialValue: "840", min: 0, step: 0.01, prefix: "$" },
+  { name: "senior_citizen", label: "Senior citizen", kind: "select", initialValue: "0", options: [["", "Unknown"], ["0", "No"], ["1", "Yes"]], numeric: true },
+  { name: "gender", label: "Gender", kind: "select", initialValue: "Female", options: ["Female", "Male"] },
+  { name: "partner", label: "Partner", kind: "select", initialValue: "No", options: ["Yes", "No"] },
+  { name: "dependents", label: "Dependents", kind: "select", initialValue: "No", options: ["Yes", "No"] },
+  { name: "phone_service", label: "Phone service", kind: "select", initialValue: "Yes", options: ["Yes", "No"] },
+  { name: "multiple_lines", label: "Multiple lines", kind: "select", initialValue: "No", options: ["Yes", "No", "No phone service"] },
+  { name: "internet_service", label: "Internet service", kind: "select", initialValue: "Fiber optic", options: ["DSL", "Fiber optic", "No"] },
+  { name: "online_security", label: "Online security", kind: "select", initialValue: "No", options: ["Yes", "No", "No internet service"] },
+  { name: "online_backup", label: "Online backup", kind: "select", initialValue: "No", options: ["Yes", "No", "No internet service"] },
+  { name: "device_protection", label: "Device protection", kind: "select", initialValue: "No", options: ["Yes", "No", "No internet service"] },
+  { name: "tech_support", label: "Tech support", kind: "select", initialValue: "No", options: ["Yes", "No", "No internet service"] },
+  { name: "streaming_tv", label: "Streaming TV", kind: "select", initialValue: "No", options: ["Yes", "No", "No internet service"] },
+  { name: "streaming_movies", label: "Streaming movies", kind: "select", initialValue: "No", options: ["Yes", "No", "No internet service"] },
+  { name: "contract_type", label: "Contract type", kind: "select", initialValue: "Month-to-month", options: ["Month-to-month", "One year", "Two year"] },
+  { name: "paperless_billing", label: "Paperless billing", kind: "select", initialValue: "Yes", options: ["Yes", "No"] },
+  { name: "payment_method", label: "Payment method", kind: "select", initialValue: "Electronic check", options: ["Electronic check", "Mailed check", "Bank transfer", "Credit card"] },
+];
+
+const initialValues = Object.fromEntries(
+  featureFields.map(({ name, initialValue }) => [name, initialValue]),
+);
 
 export default function Predictor() {
   const [form, setForm] = useState(initialValues);
@@ -32,13 +50,12 @@ export default function Predictor() {
     setResult(null);
     try {
       const customer = await getCustomer(lookupId.trim());
-      setForm({
-        tenure: String(customer.tenure),
-        monthly_charges: String(customer.monthly_charges),
-        total_charges: String(customer.total_charges),
-        contract_type: customer.contract_type,
-        payment_method: customer.payment_method,
-      });
+      setForm(Object.fromEntries(
+        featureFields.map(({ name, initialValue }) => [
+          name,
+          customer[name] == null ? initialValue : String(customer[name]),
+        ]),
+      ));
       setSelectedCustomerId(customer.customer_id);
     } catch (requestError) {
       setError(requestError.message);
@@ -55,14 +72,19 @@ export default function Predictor() {
     setError("");
     setResult(null);
     try {
+      const customerFeatures = Object.fromEntries(
+        featureFields.map(({ name, kind, numeric }) => [
+          name,
+          kind === "number"
+            ? Number(form[name])
+            : numeric
+              ? (form[name] === "" ? null : Number(form[name]))
+              : form[name],
+        ]),
+      );
       const prediction = selectedCustomerId
         ? await predictStoredCustomer(selectedCustomerId)
-        : await predictChurn({
-            ...form,
-            tenure: Number(form.tenure),
-            monthly_charges: Number(form.monthly_charges),
-            total_charges: Number(form.total_charges),
-          });
+        : await predictChurn(customerFeatures);
       setResult(prediction);
     } catch (requestError) {
       setError(requestError.message);
@@ -91,7 +113,7 @@ export default function Predictor() {
             <span className="icon-tile"><Activity size={19} /></span>
             <h3 className="mt-4 text-lg font-bold text-ink">Customer profile</h3>
             <p className="mt-1 text-sm text-muted">
-              Enter a few details to estimate churn likelihood.
+              Complete the profile fields for the churn estimate.
             </p>
           </div>
           <button type="button" className="icon-button" onClick={resetForm} aria-label="Reset form">
@@ -127,85 +149,42 @@ export default function Predictor() {
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="form-label">
-              Customer tenure
-              <span className="form-suffix">
-                <input
-                  required
-                  min="0"
-                  max="120"
-                  type="number"
-                  name="tenure"
-                  value={form.tenure}
-                  onChange={updateField}
-                  className="form-input"
-                  placeholder="e.g. 18"
-                />
-                <span>months</span>
-              </span>
-            </label>
-            <label className="form-label">
-              Monthly charges
-              <span className="form-suffix">
-                <span>$</span>
-                <input
-                  required
-                  min="0.01"
-                  step="0.01"
-                  type="number"
-                  name="monthly_charges"
-                  value={form.monthly_charges}
-                  onChange={updateField}
-                  className="form-input"
-                  placeholder="e.g. 70"
-                />
-                <span>/ mo</span>
-              </span>
-            </label>
-            <label className="form-label">
-              Total charges to date
-              <span className="form-suffix">
-                <span>$</span>
-                <input
-                  required
-                  min="0"
-                  step="0.01"
-                  type="number"
-                  name="total_charges"
-                  value={form.total_charges}
-                  onChange={updateField}
-                  className="form-input"
-                  placeholder="e.g. 840.00"
-                />
-              </span>
-            </label>
-            <label className="form-label">
-              Contract type
-              <select
-                name="contract_type"
-                value={form.contract_type}
-                onChange={updateField}
-                className="form-input"
-              >
-                <option>Month-to-month</option>
-                <option>One year</option>
-                <option>Two year</option>
-              </select>
-            </label>
-            <label className="form-label">
-              Payment method
-              <select
-                name="payment_method"
-                value={form.payment_method}
-                onChange={updateField}
-                className="form-input"
-              >
-                <option>Electronic check</option>
-                <option>Mailed check</option>
-                <option>Bank transfer</option>
-                <option>Credit card</option>
-              </select>
-            </label>
+            {featureFields.map((field) => (
+              <label className="form-label" key={field.name}>
+                {field.label}
+                {field.kind === "select" ? (
+                  <select
+                    name={field.name}
+                    value={form[field.name]}
+                    onChange={updateField}
+                    className="form-input"
+                  >
+                    {field.options.map((option) => {
+                      const [value, label] = Array.isArray(option)
+                        ? option
+                        : [option, option];
+                      return <option key={value} value={value}>{label}</option>;
+                    })}
+                  </select>
+                ) : (
+                  <span className="form-suffix">
+                    {field.prefix && <span>{field.prefix}</span>}
+                    <input
+                      required
+                      min={field.min}
+                      max={field.max}
+                      step={field.step}
+                      type="number"
+                      name={field.name}
+                      value={form[field.name]}
+                      onChange={updateField}
+                      className="form-input"
+                    />
+                    {field.suffix && <span>{field.suffix}</span>}
+                  </span>
+                )}
+              </label>
+            ))}
           </div>
           <p className="text-xs leading-5 text-muted">
             Enter the customer&apos;s actual cumulative charges for the most faithful explanation.
