@@ -127,24 +127,12 @@ def customer_record_document(record: CustomerRecord) -> Document:
 
 
 def sync_database_index(session: Session) -> int:
-    """Index real/manual database records missing from Chroma."""
+    """Index database profiles missing from Chroma, including synthetic examples."""
     with _index_lock:
         vector_store = get_vector_store()
-        existing = vector_store.get(include=["metadatas"])
-        synthetic_ids = [
-            customer_id
-            for customer_id, metadata in zip(
-                existing["ids"], existing["metadatas"], strict=True
-            )
-            if metadata and metadata.get("record_source") == "synthetic"
-        ]
-        if synthetic_ids:
-            vector_store.delete(ids=synthetic_ids)
-            logger.info("Removed %s synthetic profiles from the RAG index.", len(synthetic_ids))
         indexed_ids = set(vector_store.get(include=[])["ids"])
     customer_ids = session.scalars(
         select(CustomerRecord.customer_id)
-        .where(CustomerRecord.record_source != "synthetic")
         .order_by(CustomerRecord.customer_id)
     ).all()
     pending_ids = [
@@ -185,11 +173,8 @@ def start_database_index_sync() -> None:
 
 
 def sync_customer_record(record: CustomerRecord) -> None:
-    """Keep generated demo profiles out of semantic retrieval."""
-    if record.record_source == "synthetic":
-        delete_customer_document(record.customer_id)
-    else:
-        upsert_customer_document(record)
+    """Keep every saved profile, including synthetic examples, searchable."""
+    upsert_customer_document(record)
 
 
 def upsert_customer_document(record: CustomerRecord) -> None:

@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from uuid import uuid4
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pandas as pd
 import pytest
@@ -11,7 +12,9 @@ import pytest
 from app.main import app
 from app.models.schemas import ChatResponse
 from app.routes import chat
+from app.routes.predict import router as prediction_router
 from app.utils.data_loader import load_telco_data
+from scripts.train_model import FEATURE_COLUMNS, train_pipeline
 
 
 TELCO_CSV = (
@@ -28,6 +31,14 @@ def client() -> Iterator[TestClient]:
         yield test_client
 
 
+@pytest.fixture
+def prediction_client() -> Iterator[TestClient]:
+    prediction_app = FastAPI()
+    prediction_app.include_router(prediction_router)
+    with TestClient(prediction_app) as test_client:
+        yield test_client
+
+
 def test_health_endpoint(client: TestClient) -> None:
     response = client.get("/health")
 
@@ -35,13 +46,30 @@ def test_health_endpoint(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_prediction_endpoint_uses_trained_pipeline(client: TestClient) -> None:
-    response = client.post(
+def test_prediction_endpoint_uses_trained_pipeline(
+    prediction_client: TestClient,
+) -> None:
+    response = prediction_client.post(
         "/predict",
         json={
             "tenure": 12,
             "monthly_charges": 70.0,
+            "total_charges": 840.0,
+            "senior_citizen": 0,
+            "gender": "Female",
+            "partner": "No",
+            "dependents": "No",
+            "phone_service": "Yes",
+            "multiple_lines": "No",
+            "internet_service": "Fiber optic",
+            "online_security": "No",
+            "online_backup": "No",
+            "device_protection": "No",
+            "tech_support": "No",
+            "streaming_tv": "No",
+            "streaming_movies": "No",
             "contract_type": "Month-to-month",
+            "paperless_billing": "Yes",
             "payment_method": "Electronic check",
         },
     )
@@ -56,7 +84,21 @@ def test_prediction_endpoint_uses_trained_pipeline(client: TestClient) -> None:
         "Tenure",
         "Monthly charges",
         "Total charges",
+        "Senior citizen",
+        "Gender",
+        "Partner",
+        "Dependents",
+        "Phone service",
+        "Multiple lines",
+        "Internet service",
+        "Online security",
+        "Online backup",
+        "Device protection",
+        "Tech support",
+        "Streaming TV",
+        "Streaming movies",
         "Contract type",
+        "Paperless billing",
         "Payment method",
     } == {item["feature"] for item in body["explanations"]}
     assert abs(
@@ -66,8 +108,10 @@ def test_prediction_endpoint_uses_trained_pipeline(client: TestClient) -> None:
     ) < 1e-6
 
 
-def test_prediction_endpoint_rejects_invalid_contract(client: TestClient) -> None:
-    response = client.post(
+def test_prediction_endpoint_rejects_invalid_contract(
+    prediction_client: TestClient,
+) -> None:
+    response = prediction_client.post(
         "/predict",
         json={
             "tenure": 12,
@@ -78,6 +122,23 @@ def test_prediction_endpoint_rejects_invalid_contract(client: TestClient) -> Non
     )
 
     assert response.status_code == 422
+
+
+def test_prediction_endpoint_handles_omitted_optional_profile_fields(
+    prediction_client: TestClient,
+) -> None:
+    response = prediction_client.post(
+        "/predict",
+        json={
+            "tenure": 12,
+            "monthly_charges": 70.0,
+            "contract_type": "Month-to-month",
+            "payment_method": "Electronic check",
+        },
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()["explanations"]) == 19
 
 
 def test_chat_endpoint_returns_answer_and_sources(
@@ -96,6 +157,97 @@ def test_chat_endpoint_returns_answer_and_sources(
         "answer": "Some indexed customers churned.",
         "sources": ["CUST-0001"],
     }
+
+
+def test_synthetic_customer_is_indexed_and_cited_as_synthetic(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from langchain_core.documents import Document
+
+    from app.services import rag_index_service
+    from app.services.rag_service import _format_source
+
+    indexed_ids: list[str] = []
+    record = SimpleNamespace(customer_id="SYN-TEST", record_source="synthetic")
+    monkeypatch.setattr(
+        rag_index_service,
+        "upsert_customer_document",
+        lambda customer: indexed_ids.append(customer.customer_id),
+    )
+
+    rag_index_service.sync_customer_record(record)
+    source = _format_source(
+        Document(
+            page_content="Synthetic profile example.",
+            metadata={"customer_id": "SYN-TEST", "record_source": "synthetic"},
+        )
+    )
+
+    assert indexed_ids == ["SYN-TEST"]
+    assert source == "SYN-TEST (synthetic example)"
+
+
+def test_startup_index_sync_includes_synthetic_database_rows(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from app.models.customer import CustomerRecord
+    from app.services import rag_index_service
+
+    row_values = {
+        column.name: None for column in CustomerRecord.__table__.columns
+    }
+    row_values.update(
+        {
+            "customer_id": "SYN-STARTUP",
+            "tenure": 12,
+            "monthly_charges": 70.0,
+            "total_charges": 840.0,
+            "contract_type": "Month-to-month",
+            "payment_method": "Electronic check",
+            "senior_citizen": 0,
+            "record_source": "synthetic",
+        }
+    )
+    record = SimpleNamespace(**row_values)
+
+    class FakeScalars:
+        def __init__(self, values):
+            self.values = values
+
+        def all(self):
+            return self.values
+
+    class FakeSession:
+        calls = 0
+
+        def scalars(self, statement):
+            self.calls += 1
+            values = ["SYN-STARTUP"] if self.calls == 1 else [record]
+            return FakeScalars(values)
+
+    class FakeVectorStore:
+        ids: list[str] = []
+        documents = []
+
+        def get(self, include):
+            return {"ids": self.ids}
+
+        def add_documents(self, documents, ids):
+            self.documents.extend(documents)
+            self.ids.extend(ids)
+
+    vector_store = FakeVectorStore()
+    monkeypatch.setattr(
+        rag_index_service,
+        "get_vector_store",
+        lambda: vector_store,
+    )
+
+    indexed_count = rag_index_service.sync_database_index(FakeSession())
+
+    assert indexed_count == 1
+    assert vector_store.ids == ["SYN-STARTUP"]
+    assert vector_store.documents[0].metadata["record_source"] == "synthetic"
 
 
 def test_ollama_provider_uses_configured_local_model(monkeypatch) -> None:
@@ -166,6 +318,82 @@ def test_telco_data_cleaning_handles_zero_tenure_blank_charges() -> None:
     assert dataset["total_charges"].notna().all()
     assert dataset.loc[dataset["tenure"].eq(0), "total_charges"].eq(0).all()
     assert set(dataset["churn_label"].unique()) == {0, 1}
+
+
+def test_training_pipeline_uses_all_customer_profile_features() -> None:
+    dataset = load_telco_data(TELCO_CSV).sample(n=1_000, random_state=42)
+
+    model, _ = train_pipeline(dataset)
+
+    assert len(FEATURE_COLUMNS) == 19
+    assert list(model.feature_names_in_) == FEATURE_COLUMNS
+    assert not {"customer_id", "churn_label"}.intersection(FEATURE_COLUMNS)
+
+
+def test_stored_customer_prediction_passes_all_profile_features(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from app.models.schemas import PredictionResponse
+    from app.services import customer_service
+
+    profile = {
+        "tenure": 12,
+        "monthly_charges": 70.0,
+        "total_charges": 840.0,
+        "senior_citizen": 0,
+        "gender": "Female",
+        "partner": "No",
+        "dependents": "No",
+        "phone_service": "Yes",
+        "multiple_lines": "No",
+        "internet_service": "Fiber optic",
+        "online_security": "No",
+        "online_backup": "No",
+        "device_protection": "No",
+        "tech_support": "No",
+        "streaming_tv": "No",
+        "streaming_movies": "No",
+        "contract_type": "Month-to-month",
+        "paperless_billing": "Yes",
+        "payment_method": "Electronic check",
+    }
+    record = SimpleNamespace(
+        customer_id="MAN-TEST",
+        predicted_churn=None,
+        churn_probability=None,
+        **profile,
+    )
+    captured: dict[str, object] = {}
+    result = PredictionResponse(
+        churn_prediction=False,
+        churn_probability=0.2,
+        message="This customer is predicted to stay.",
+        baseline_probability=0.2,
+        explanations=[],
+    )
+
+    class FakeSession:
+        def commit(self):
+            pass
+
+        def refresh(self, customer):
+            pass
+
+    def fake_predict(features):
+        captured.update(features.model_dump())
+        return result
+
+    monkeypatch.setattr(customer_service, "get_customer", lambda session, customer_id: record)
+    monkeypatch.setattr(customer_service, "predict_churn", fake_predict)
+
+    saved_record, prediction = customer_service.predict_customer_by_id(
+        FakeSession(), "MAN-TEST"
+    )
+
+    assert saved_record is record
+    assert prediction is result
+    assert set(captured) == set(FEATURE_COLUMNS)
+    assert captured == profile
 
 
 def test_telco_data_cleaning_rejects_missing_nonzero_tenure_charges(

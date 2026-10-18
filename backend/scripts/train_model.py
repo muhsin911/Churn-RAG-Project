@@ -15,21 +15,22 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.utils.data_loader import load_telco_data
+from app.utils.data_loader import (
+    CATEGORICAL_FEATURES,
+    FEATURE_COLUMNS,
+    NUMERIC_FEATURES,
+    load_telco_data,
+)
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 MODEL_PATH = ROOT_DIR / "data" / "processed" / "model.pkl"
 TARGET_COLUMN = "churn_label"
-NUMERIC_FEATURES = ["tenure", "monthly_charges", "total_charges"]
-CATEGORICAL_FEATURES = ["contract_type", "payment_method"]
-FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
-
-
 def train_pipeline(
     dataset: pd.DataFrame,
 ) -> tuple[Pipeline, dict[str, float]]:
@@ -62,10 +63,14 @@ def train_pipeline(
         transformers=[
             (
                 "categorical",
-                OneHotEncoder(handle_unknown="ignore"),
+                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
                 CATEGORICAL_FEATURES,
             ),
-            ("numeric", "passthrough", NUMERIC_FEATURES),
+            (
+                "numeric",
+                Pipeline([("imputer", SimpleImputer(strategy="most_frequent"))]),
+                NUMERIC_FEATURES,
+            ),
         ],
         remainder="drop",
     )

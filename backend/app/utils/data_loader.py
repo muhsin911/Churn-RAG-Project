@@ -35,6 +35,30 @@ CUSTOMER_CONTEXT_COLUMNS = [
     "streaming_movies",
     "paperless_billing",
 ]
+NUMERIC_FEATURES = [
+    "tenure",
+    "monthly_charges",
+    "total_charges",
+    "senior_citizen",
+]
+CATEGORICAL_FEATURES = [
+    "gender",
+    "partner",
+    "dependents",
+    "phone_service",
+    "multiple_lines",
+    "internet_service",
+    "online_security",
+    "online_backup",
+    "device_protection",
+    "tech_support",
+    "streaming_tv",
+    "streaming_movies",
+    "contract_type",
+    "paperless_billing",
+    "payment_method",
+]
+FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 SOURCE_COLUMNS = {
     "customerID",
     "gender",

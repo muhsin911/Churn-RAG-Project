@@ -14,6 +14,7 @@ from app.models.schemas import (
     FeatureContribution,
     PredictionResponse,
 )
+from app.utils.data_loader import CATEGORICAL_FEATURES, FEATURE_COLUMNS
 
 
 @lru_cache(maxsize=1)
@@ -32,6 +33,11 @@ def _load_model() -> Pipeline:
             f"Expected a scikit-learn Pipeline at {model_path}, "
             f"got {type(model).__name__}."
         )
+    if list(getattr(model, "feature_names_in_", ())) != FEATURE_COLUMNS:
+        raise ValueError(
+            "The trained model does not use the current 19-feature profile. "
+            "Run `python scripts/train_model.py` from the backend directory to retrain it."
+        )
     return model
 
 
@@ -45,17 +51,11 @@ def _load_shap_explainer() -> shap.TreeExplainer:
 def predict_churn(features: CustomerFeatures) -> PredictionResponse:
     """Predict churn and return SHAP contributions grouped by input feature."""
     model = _load_model()
-    input_data = pd.DataFrame(
-        [
-            {
-                "tenure": features.tenure,
-                "monthly_charges": features.monthly_charges,
-                "total_charges": features.total_charges,
-                "contract_type": features.contract_type,
-                "payment_method": features.payment_method,
-            }
-        ]
-    )
+    feature_values = {name: getattr(features, name) for name in FEATURE_COLUMNS}
+    for name in CATEGORICAL_FEATURES:
+        if feature_values[name] is None:
+            feature_values[name] = "Unknown"
+    input_data = pd.DataFrame([feature_values], columns=FEATURE_COLUMNS)
 
     preprocessor = model.named_steps["preprocessor"]
     classifier = model.named_steps["classifier"]
@@ -92,30 +92,54 @@ def predict_churn(features: CustomerFeatures) -> PredictionResponse:
         "tenure": "Tenure",
         "monthly_charges": "Monthly charges",
         "total_charges": "Total charges",
+        "senior_citizen": "Senior citizen",
+        "gender": "Gender",
+        "partner": "Partner",
+        "dependents": "Dependents",
+        "phone_service": "Phone service",
+        "multiple_lines": "Multiple lines",
+        "internet_service": "Internet service",
+        "online_security": "Online security",
+        "online_backup": "Online backup",
+        "device_protection": "Device protection",
+        "tech_support": "Tech support",
+        "streaming_tv": "Streaming TV",
+        "streaming_movies": "Streaming movies",
         "contract_type": "Contract type",
+        "paperless_billing": "Paperless billing",
         "payment_method": "Payment method",
     }
     for encoded_name, contribution in zip(
         transformed_feature_names, feature_shap_values, strict=True
     ):
         original_name = str(encoded_name).split("__", maxsplit=1)[-1]
-        if original_name.startswith("contract_type_"):
-            feature_name = "contract_type"
-        elif original_name.startswith("payment_method_"):
-            feature_name = "payment_method"
-        else:
-            feature_name = original_name
+        feature_name = next(
+            (
+                name
+                for name in FEATURE_COLUMNS
+                if original_name == name or original_name.startswith(f"{name}_")
+            ),
+            original_name,
+        )
         grouped_impacts[feature_name] = (
             grouped_impacts.get(feature_name, 0.0) + float(contribution)
         )
 
-    input_values = {
-        "tenure": f"{features.tenure} months",
-        "monthly_charges": f"${features.monthly_charges:.2f}/month",
-        "total_charges": f"${features.total_charges:.2f}",
-        "contract_type": features.contract_type,
-        "payment_method": features.payment_method,
-    }
+    input_values = {}
+    for name in FEATURE_COLUMNS:
+        value = feature_values[name]
+        if value is None:
+            input_values[name] = "Unknown"
+        elif name == "tenure":
+            input_values[name] = f"{value} months"
+        elif name == "monthly_charges":
+            input_values[name] = f"${float(value):.2f}/month"
+        elif name == "total_charges":
+            input_values[name] = f"${float(value):.2f}"
+        elif name == "senior_citizen":
+            input_values[name] = "Yes" if value else "No"
+        else:
+            input_values[name] = str(value)
     explanations = [
         FeatureContribution(
             feature=feature_display_names[name],

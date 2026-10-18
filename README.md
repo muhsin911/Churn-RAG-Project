@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Intelligent Customer Churn Prediction & RAG Analysis System
 
 A full-stack research prototype that predicts churn risk from the Telco
@@ -83,16 +82,16 @@ Original CSV
   -> fill blank TotalCharges with 0 only where tenure = 0
   -> normalize column names and payment-method labels
   -> map Churn Yes/No to 1/0
-  -> select 5 model features
+  -> select 19 profile features, excluding customer ID and churn label
   -> stratified 80/20 train/test split
-  -> one-hot encode contract_type and payment_method
+  -> impute optional senior_citizen values and one-hot encode categories
   -> fit RandomForestClassifier
   -> compute local SHAP contributions for the predicted churn probability
   -> report accuracy, precision, recall, F1
   -> save fitted preprocessing + model pipeline as model.pkl
 
 ONLINE PREDICTION
-User form (tenure, monthly and total charges, contract, payment method)
+User form (all 19 customer profile features)
   -> React/Axios POST /predict
   -> Pydantic validates values; backend estimates total_charges if omitted
   -> fitted pipeline preprocesses and predicts churn class/probability
@@ -108,10 +107,10 @@ Original Telco CSV + generated synthetic profiles
   -> store predicted yes/no and probability separately from manually entered actual outcome
 
 RAG INDEXING / QUESTION ANSWERING
-Original Telco and manually entered PostgreSQL customer profiles
+Original Telco, manual, and synthetic PostgreSQL customer profiles
   -> one natural-language document per customer, with actual outcome or "unknown"
   -> local sentence-transformers/all-MiniLM-L6-v2 creates vectors
-  -> persist vectors/documents in ChromaDB; startup fills missing real/manual records
+  -> persist vectors/documents in ChromaDB; startup fills missing customer records
   -> customer create/edit/delete immediately upserts/removes its Chroma document
 
 User question
@@ -144,10 +143,9 @@ User question
     rates use only known outcomes.
 - **RAG Chat Module**
   - `backend/scripts/setup_rag.py` can rebuild a base index from the original
-    Telco source. API startup fills missing real/manual customer profiles from
-    PostgreSQL; CRUD changes immediately sync to ChromaDB. Generated synthetic
-    seed profiles are excluded from retrieval so fictional records don't
-    contaminate real-customer examples.
+    Telco source. API startup fills missing customer profiles, including
+    explicitly labeled synthetic examples, from PostgreSQL; CRUD changes
+    immediately sync to ChromaDB.
   - `backend/app/services/rag_service.py` retrieves four matching documents
     and uses the configured LLM to formulate a response with customer IDs as
     source references.
@@ -172,21 +170,34 @@ model's churn probability (within floating-point tolerance). Positive impacts
 push the model estimate toward churn; negative impacts push it away.
 
 SHAP explains the model's behavior; it does not show causal effects, guarantee
-the estimate is correct, or make a limited-feature model “perfect.” Correlated
+the estimate is correct, or make this baseline model “perfect.” Correlated
 features can share attribution. The interface labels the values as model
 contributions rather than causes.
 
-The Random Forest is trained only on these five features:
+The Random Forest is trained on all 19 customer profile features:
 
 1. `tenure`
 2. `monthly_charges`
 3. `total_charges`
-4. `contract_type`
-5. `payment_method`
+4. `senior_citizen`
+5. `gender`
+6. `partner`
+7. `dependents`
+8. `phone_service`
+9. `multiple_lines`
+10. `internet_service`
+11. `online_security`
+12. `online_backup`
+13. `device_protection`
+14. `tech_support`
+15. `streaming_tv`
+16. `streaming_movies`
+17. `contract_type`
+18. `paperless_billing`
+19. `payment_method`
 
-Other original CSV fields (such as internet service, online security, partner,
-and dependents) are included as customer context in RAG documents, but are
-**not** inputs to the current classifier. The RAG chat is a separate feature:
+`customer_id` is an identifier and `churn_label` is the training target; neither
+is a model input. The RAG chat is a separate feature:
 it retrieves similar text records to answer dataset questions and does not
 explain, validate, or alter a specific `/predict` result.
 
@@ -205,9 +216,10 @@ similarity. Churn-rate differences remain observational associations, not
 proof of causes. Retention suggestions are experiment ideas whose effects must
 be measured.
 
-ChromaDB semantic retrieval uses original and manually entered PostgreSQL
-customer profiles. Generated synthetic seed profiles are excluded from
-retrieval; customer records created or edited through the Customers screen sync
+ChromaDB semantic retrieval includes original, manually entered, and generated
+synthetic PostgreSQL customer profiles. Synthetic records are identified as
+simulated examples and their unknown outcomes are not treated as observed
+evidence. Customer records created or edited through the Customers screen sync
 to the index immediately. RAG's exact counts and segment rates use live
 PostgreSQL data and count only records with known actual outcomes; predictions
 and unknown outcomes are never treated as actual churn labels.
@@ -577,14 +589,11 @@ in a React dashboard. Docker Compose runs the frontend, backend, and database.
 
 ## Simple explanation
 
-The ML model estimates whether a customer may churn from five account features.
-The predictor also shows SHAP contributions that explain how those inputs
-influenced the model's estimate, not what caused a real customer to churn. The
-RAG assistant separately searches customer examples and sends the evidence to
-the configured LLM to help answer questions. Embeddings and, by default,
-chat generation run locally through Ollama. PostgreSQL keeps a known churn
-outcome separate from a model prediction, and updating a customer never
-silently changes or retrains the fitted model.
-=======
-# Churn-RAG-Project
->>>>>>> 173297fb0aaa7764e1113699a356d8b1681edb25
+The ML model estimates churn using all 19 customer profile features, excluding
+the customer ID and churn outcome. The predictor shows grouped SHAP
+contributions to explain the model's estimate, not causes. The RAG assistant
+searches original, manual, and explicitly labeled synthetic examples; synthetic
+unknown outcomes do not count toward actual churn rates. Embeddings and, by
+default, chat generation run locally through Ollama. PostgreSQL keeps known
+outcomes separate from model predictions, and customer updates do not retrain
+the fitted model.

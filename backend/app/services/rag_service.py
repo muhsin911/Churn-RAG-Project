@@ -95,6 +95,9 @@ def _load_qa_chain() -> RetrievalQA:
             "You are a careful customer churn data analyst. Answer using the "
             "exact dataset statistics and retrieved customer records in the "
             "context. Distinguish calculated facts from hypotheses. For churn "
+            "examples, clearly identify records marked synthetic as simulated, "
+            "not observed customers or factual outcomes. Never treat synthetic "
+            "records as labeled evidence. For churn "
             "rates, use the "
             "provided rate among known actual outcomes; never divide churned "
             "customers by all profiles when some outcomes are unknown. State "
@@ -121,7 +124,11 @@ def _load_qa_chain() -> RetrievalQA:
 def _format_source(document: Document) -> str:
     """Make a readable citation from a retrieved customer document."""
     customer_id = document.metadata.get("customer_id")
-    return str(customer_id) if customer_id else "Dataset-wide computed statistics"
+    if not customer_id:
+        return "Dataset-wide computed statistics"
+    if document.metadata.get("record_source") == "synthetic":
+        return f"{customer_id} (synthetic example)"
+    return str(customer_id)
 
 
 def chat_with_data(question: str) -> ChatResponse:

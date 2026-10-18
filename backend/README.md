@@ -62,6 +62,9 @@ It saves the scikit-learn pipeline to `data/processed/model.pkl`. The index
 command embeds the customer records locally and saves them in `chroma_db`.
 Each index build uses a fresh collection, which also avoids mixing older
 OpenAI-embedded vectors with the new local embedding model.
+The model uses all 19 profile predictors; `customer_id` and the churn outcome
+are excluded. Retrain with this command before starting the API after updating
+from an older five-feature model.
 
 ## 4. Run the API and seed PostgreSQL
 
@@ -93,11 +96,11 @@ running without manually starting `ollama serve`.
 ### Endpoints
 
 - `GET /health` reports whether the API process is running.
-- `POST /predict` accepts customer features and returns a churn prediction and
-  probability. `total_charges` is optional and defaults to tenure multiplied by
-  monthly charges. Payment methods are Electronic check, Mailed check, Bank
-  transfer, and Credit card. The response also contains SHAP feature impacts
-  grouped to the original model inputs.
+- `POST /predict` accepts the 19 customer profile features, excluding customer
+  ID and churn outcome, and returns a churn prediction and probability.
+  `total_charges` is optional and defaults to tenure multiplied by monthly
+  charges. Unknown demographic/service values are allowed. The response also
+  contains SHAP impacts grouped to the original profile fields.
 - `POST /chat` retrieves matching customer records and asks the configured LLM
   to answer a question. The RAG context combines those records with exact
   full-dataset churn counts and segment statistics. Responses cite retrieved
@@ -120,13 +123,13 @@ outcome is entered. This educational API has no authentication; do not expose
 customer management publicly without authentication, authorization, and audit
 logging.
 
-On API startup, missing real and manually entered PostgreSQL customer profiles
-are added to ChromaDB in batches. Generated synthetic seed profiles are
-excluded from semantic retrieval so they do not contaminate real-customer
-examples. Customer create/edit/delete requests sync the corresponding Chroma
-document immediately. RAG's exact counts and segment comparisons use current
-PostgreSQL records with known actual outcomes only. Predictions and unknown
-outcomes are not counted as actual churn.
+On API startup, missing PostgreSQL customer profiles, including generated
+synthetic profiles, are added to ChromaDB in batches. Retrieved synthetic
+records are identified as simulated examples, not observed customers.
+Customer create/edit/delete requests sync the corresponding Chroma document
+immediately. RAG's exact counts and segment comparisons use current PostgreSQL
+records with known actual outcomes only. Predictions and unknown outcomes are
+not counted as actual churn.
 
 ## Debug in VS Code
 
@@ -173,7 +176,22 @@ Prediction request example:
 {
   "tenure": 12,
   "monthly_charges": 70.0,
+  "total_charges": 840.0,
+  "senior_citizen": 0,
+  "gender": "Female",
+  "partner": "No",
+  "dependents": "No",
+  "phone_service": "Yes",
+  "multiple_lines": "No",
+  "internet_service": "Fiber optic",
+  "online_security": "No",
+  "online_backup": "No",
+  "device_protection": "No",
+  "tech_support": "No",
+  "streaming_tv": "No",
+  "streaming_movies": "No",
   "contract_type": "Month-to-month",
+  "paperless_billing": "Yes",
   "payment_method": "Electronic check"
 }
 ```

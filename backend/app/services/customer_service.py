@@ -19,6 +19,7 @@ from app.models.schemas import (
 )
 from app.services.analytics_service import summarize_labeled_customers
 from app.services.ml_service import predict_churn
+from app.utils.data_loader import FEATURE_COLUMNS
 
 
 def list_customers(
@@ -154,15 +155,8 @@ def predict_customer_by_id(
     record = get_customer(session, customer_id)
     if record is None:
         return None
-    result = predict_churn(
-        CustomerFeatures(
-            tenure=record.tenure,
-            monthly_charges=record.monthly_charges,
-            total_charges=record.total_charges,
-            contract_type=record.contract_type,
-            payment_method=record.payment_method,
-        )
-    )
+    profile = {name: getattr(record, name) for name in FEATURE_COLUMNS}
+    result = predict_churn(CustomerFeatures(**profile))
     record.predicted_churn = result.churn_prediction
     record.churn_probability = result.churn_probability
     session.commit()

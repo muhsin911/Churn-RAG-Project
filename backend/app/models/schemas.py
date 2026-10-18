@@ -7,14 +7,28 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class CustomerFeatures(BaseModel):
-    """Customer information used to estimate churn risk."""
+    """Nineteen non-identifier customer profile features used for churn risk."""
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
     tenure: int = Field(ge=0, le=120, description="Months the customer has stayed")
     monthly_charges: float = Field(gt=0, le=100_000)
     total_charges: float | None = Field(default=None, ge=0, le=10_000_000)
+    senior_citizen: int | None = Field(default=None, ge=0, le=1)
+    gender: Literal["Female", "Male", "Unknown"] | None = None
+    partner: Literal["Yes", "No", "Unknown"] | None = None
+    dependents: Literal["Yes", "No", "Unknown"] | None = None
+    phone_service: Literal["Yes", "No", "Unknown"] | None = None
+    multiple_lines: Literal["Yes", "No", "No phone service", "Unknown"] | None = None
+    internet_service: Literal["DSL", "Fiber optic", "No", "Unknown"] | None = None
+    online_security: Literal["Yes", "No", "No internet service", "Unknown"] | None = None
+    online_backup: Literal["Yes", "No", "No internet service", "Unknown"] | None = None
+    device_protection: Literal["Yes", "No", "No internet service", "Unknown"] | None = None
+    tech_support: Literal["Yes", "No", "No internet service", "Unknown"] | None = None
+    streaming_tv: Literal["Yes", "No", "No internet service", "Unknown"] | None = None
+    streaming_movies: Literal["Yes", "No", "No internet service", "Unknown"] | None = None
     contract_type: Literal["Month-to-month", "One year", "Two year"]
+    paperless_billing: Literal["Yes", "No", "Unknown"] | None = None
     payment_method: Literal[
         "Electronic check",
         "Mailed check",
