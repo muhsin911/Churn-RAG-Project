@@ -2,7 +2,6 @@
 
 import logging
 from collections.abc import Mapping
-from functools import lru_cache
 from pathlib import Path
 from threading import Lock, Thread
 from uuid import uuid4
@@ -21,6 +20,8 @@ from app.services.embedding_service import get_embeddings
 
 logger = logging.getLogger(__name__)
 _index_lock = Lock()
+_vector_store_lock = Lock()
+_vector_store: Chroma | None = None
 COLLECTION_PREFIX = "telco_churn_"
 INDEX_BATCH_SIZE = 128
 CONTEXT_COLUMNS = [
@@ -45,16 +46,19 @@ class RagIndexSyncError(RuntimeError):
     """A PostgreSQL customer change could not be reflected in ChromaDB."""
 
 
-@lru_cache(maxsize=1)
 def get_vector_store() -> Chroma:
     """Return the active persistent Chroma collection shared by RAG operations."""
-    settings = get_settings()
-    settings.chroma_path.mkdir(parents=True, exist_ok=True)
-    return Chroma(
-        collection_name=active_collection_name(),
-        embedding_function=get_embeddings(),
-        persist_directory=str(settings.chroma_path),
-    )
+    global _vector_store
+    with _vector_store_lock:
+        if _vector_store is None:
+            settings = get_settings()
+            settings.chroma_path.mkdir(parents=True, exist_ok=True)
+            _vector_store = Chroma(
+                collection_name=active_collection_name(),
+                embedding_function=get_embeddings(),
+                persist_directory=str(settings.chroma_path),
+            )
+        return _vector_store
 
 
 def _customer_document(row: Mapping[str, object]) -> Document:
@@ -224,13 +228,15 @@ def build_versioned_index(
 
 def activate_collection(collection_name: str) -> None:
     """Atomically switch the collection name used by the RAG service."""
+    global _vector_store
     settings = get_settings()
     manifest_path: Path = settings.chroma_collection_path
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = manifest_path.with_suffix(".tmp")
     temporary_path.write_text(collection_name, encoding="utf-8")
     temporary_path.replace(manifest_path)
-    get_vector_store.cache_clear()
+    with _vector_store_lock:
+        _vector_store = None
 
 
 def active_collection_name() -> str:
